@@ -104,68 +104,10 @@ namespace VB6Parse.Language.Controls
             Width = PropertyParsingHelpers.GetInt32(textualProps, "Width", this.Width);
 
             // Binary properties
-			if (binaryProps.TryGetValue("Image", out byte[] imgData)) Image = imgData; // FRX data
-			
-            // --- Load Picture from FRX data ---
-            if (binaryProps.TryGetValue("Picture", out byte[] pictureData) && pictureData != null && pictureData.Length > 0)
-            {
-                try
-                {
-                    using (var ms = new MemoryStream(pictureData))
-                    {
-                        // Ensure the stream is seekable if FromStream requires it for certain image types.
-                        // MemoryStream is seekable by default.
-                        this.Picture = Image.FromStream(ms);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Error loading PictureBox.Picture from FRX data: {ex.Message}");
-                    this.Picture = null;
-                }
-            }
-            
-            // --- Load DragIcon from FRX data (similar to Picture) ---
-            if (binaryProps.TryGetValue("DragIcon", out byte[] dragIconData) && dragIconData != null && dragIconData.Length > 0)
-            {
-                try
-                {
-                    using (var ms = new MemoryStream(dragIconData))
-                    {
-                        this.DragIcon = Image.FromStream(ms);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Error loading PictureBox.DragIcon from FRX data: {ex.Message}");
-                    this.DragIcon = null;
-                }
-            }
-			
-            // --- Load MouseIcon from FRX data (similar to Picture) ---
-            if (binaryProps.TryGetValue("MouseIcon", out byte[] mouseIconData) && mouseIconData != null && mouseIconData.Length > 0)
-            {
-                try
-                {
-                    using (var ms = new MemoryStream(mouseIconData))
-                    {
-                        this.MouseIcon = Image.FromStream(ms);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Error loading PictureBox.MouseIcon from FRX data: {ex.Message}");
-                    this.MouseIcon = null;
-                }
-            }
-			
-			// You might have other properties like Font (from propertyGroups), etc.
-            var fontGroup = propertyGroups.FirstOrDefault(pg => pg.Name.Equals("Font", StringComparison.OrdinalIgnoreCase));
-            if (fontGroup != null)
-            {
-                // Parse Font properties from fontGroup.Properties
-                // Example: this.Font = FontProperties.FromPropertyGroup(fontGroup);
-            }
+            if (binaryProps.TryGetValue("Picture", out byte[] picData)) Picture = picData; // FRX data
+            if (binaryProps.TryGetValue("Image", out byte[] imgData)) Image = imgData; // FRX data
+            if (binaryProps.TryGetValue("DragIcon", out byte[] dragIconData)) DragIcon = dragIconData;
+            if (binaryProps.TryGetValue("MouseIcon", out byte[] mouseIconData)) MouseIcon = mouseIconData;
             
             if (textualProps.TryGetValue("DataSource", out string dsName))
             {

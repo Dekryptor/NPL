@@ -1,4 +1,4 @@
-// Namespace: VB6Parse.Parsers
+// Namespace: VB6Parser.Parsers
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -6,11 +6,11 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-using VB6Parse.Model;
-using VB6Parse.Language.Controls;
-using VB6Parse.Utilities; // For PropertyParsingHelpers (indirectly via XProperties)
+using VB6Parser.Models;
+using VB6Parser.Language.Controls;
+using VB6Parser.Utilities; // For PropertyParsingHelpers (indirectly via XProperties)
 
-namespace VB6Parse.Parsers
+namespace VB6Parser.Parsers
 {
     public class FormFileParser
     {
@@ -26,8 +26,8 @@ namespace VB6Parse.Parsers
 
         // Regexes (some might need refinement for comments or complex quoted strings)
         private static readonly Regex VersionRegex = new Regex(@"^VERSION\s+(\d+)\.(\d+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
-        private static readonly Regex ObjectRegex = new Regex(@"^Object\s*=\s*(.+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
-        private static readonly Regex AttributeRegex = new Regex(@"^\s*Attribute\s+([^=]+)\s*=\s*(.+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        private static readonly Regex ObjectRegex = new Regex(@"^Object\s*=\s*(.*)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        private static readonly Regex AttributeRegex = new Regex(@"^\s*Attribute\s+([^=]+)\s*=\s*(.*)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         
         // Captures: 1=TypeFullName (e.g. VB.Form), 2=ControlName
         private static readonly Regex BeginControlRegex = new Regex(@"^\s*Begin\s+([A-Za-z0-9_\.]+)\s+([A-Za-z_][A-Za-z0-9_]*)", RegexOptions.Compiled | RegexOptions.CultureInvariant); 
@@ -38,10 +38,10 @@ namespace VB6Parse.Parsers
         private static readonly Regex EndPropertyRegex = new Regex(@"^\s*EndProperty\s*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         
         // Captures: 1=PropertyName, 2=PropertyValue
-        private static readonly Regex PropertyLineRegex = new Regex(@"^\s*([A-Za-z_][A-Za-z0-9_#]*)\s*=\s*(.+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        private static readonly Regex PropertyLineRegex = new Regex(@"^\s*([A-Za-z_][A-Za-z0-9_#]*)\s*=\s*(.*)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         
-        // Captures: 1=PropertyName, 2=FRXFileName, 3=HexOffset
-        private static readonly Regex ResourcePropertyLineRegex = new Regex(@"^\s*([A-Za-z_][A-Za-z0-9_#]*)\s*=\s*""([^""]+\.(frx|ctx|pag|dsx|vbx|oca))""\s*:\s*([0-9A-Fa-f]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        // Captures: 1=PropertyName, 2=FRXFileName, 3=HexOffsetValue (group 4 is the extension, group 3 is just the hex digits)
+        private static readonly Regex ResourcePropertyLineRegex = new Regex(@"^\s*([A-Za-z_][A-Za-z0-9_#]*)\s*=\s*""([^""]+\.(frx|ctx|pag|dsx|vbx|ocx))""\s*:\s*([0-9A-Fa-f]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         private class ControlParseState
         {
@@ -64,53 +64,221 @@ namespace VB6Parse.Parsers
             _frxResolver = frxResolver ?? DefaultFrxResolver;
         }
         
-        private static byte[] DefaultFrxResolver(string frxFilePath, int offset)
-        {
-            // This is a placeholder. Real FRX parsing is complex.
-            // See VB6Parse_Rust/src/parsers/form.rs resource_file_resolver function.
-            if (string.IsNullOrEmpty(frxFilePath) || !File.Exists(frxFilePath)) return null;
-            try
-            {
-                // The Rust implementation has sophisticated logic to read FRX records.
-                // This simplified version just reads a chunk, which is incorrect for most FRX data.
-                // For a robust solution, the Rust FRX parsing logic needs to be ported.
-                byte[] frxBytes = File.ReadAllBytes(frxFilePath);
-                if (offset >= frxBytes.Length) return null;
+		private static byte[] DefaultFrxResolver(string frxFilePath, int frxOffset) // Renamed offset to frxOffset for clarity
+		{
+			if (string.IsNullOrEmpty(frxFilePath) || !File.Exists(frxFilePath))
+			{
+				// Console.Error.WriteLine($"FRX file not found or path is null/empty: {frxFilePath}");
+				return null;
+			}
 
-                // Determine record length based on FRX format (highly simplified)
-                // This is a placeholder and will not work correctly for many FRX files.
-                // The Rust code checks for various header types (0xFF, "lt\0\0", etc.)
-                // and reads lengths from those headers.
-                int lengthToRead = 0;
-                if (frxBytes[offset] == 0xFF && offset + 2 < frxBytes.Length) // Simplified 16-bit record
-                {
-                    lengthToRead = BitConverter.ToUInt16(frxBytes, offset + 1);
-                    offset += 3; // Skip 0xFF and 2-byte length
-                }
-                else if (offset + 4 <= frxBytes.Length) // Simplified 32-bit length record (very common)
-                {
-                     // This is often a size *preceded* by a header, not the first bytes at offset.
-                     // The offset in FRM points to start of a record structure.
-                     // The Rust code has more detail. For now, this is a guess.
-                    lengthToRead = (int)BitConverter.ToUInt32(frxBytes, offset); // This is likely wrong.
-                    offset +=4; // skip length
-                } else {
-                    return null; // Cannot determine length
-                }
+			try
+			{
+				byte[] buffer = File.ReadAllBytes(frxFilePath);
 
+				if (frxOffset < 0 || frxOffset >= buffer.Length) // Added check for frxOffset < 0
+				{
+					// Console.Error.WriteLine($"Offset {frxOffset} is out of bounds for FRX file {frxFilePath} (length {buffer.Length}).");
+					return null; 
+				}
 
-                if (lengthToRead <= 0 || offset + lengthToRead > frxBytes.Length) return new byte[0]; // Empty or invalid
+				// Type 1: 12-byte Header Record (Signature "lt\0\0")
+				// Check signature at frxOffset + 4 to frxOffset + 8
+				if (frxOffset + 8 <= buffer.Length) // Ensure enough bytes for signature part
+				{
+					// The Rust code checks `buffer.len() >= 12` globally for this block,
+					// and then `binary_blob_signature = buffer[offset + 4..offset + 8]`.
+					// We need to ensure `frxOffset + 4` up to `frxOffset + 8` is valid.
+					// And for sizes, `frxOffset` to `frxOffset+4` and `frxOffset+8` to `frxOffset+12`.
+					// So, effectively, `frxOffset + 12 <= buffer.Length` for the full header.
+					if (frxOffset + 12 <= buffer.Length &&
+						buffer[frxOffset + 4] == 'l' && buffer[frxOffset + 5] == 't' &&
+						buffer[frxOffset + 6] == 0 && buffer[frxOffset + 7] == 0)
+					{
+						uint bufferSize1 = BitConverter.ToUInt32(buffer, frxOffset);
+						uint bufferSize2 = BitConverter.ToUInt32(buffer, frxOffset + 8);
 
-                byte[] data = new byte[lengthToRead];
-                Array.Copy(frxBytes, offset, data, 0, lengthToRead);
-                return data;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Error reading FRX file {frxFilePath} at offset {offset}: {ex.Message}");
-                return null;
-            }
-        }
+						if (bufferSize1 == 8 && bufferSize2 == 0)
+						{
+							return Array.Empty<byte>(); // Special empty case
+						}
+
+						if (bufferSize2 != bufferSize1 - 8)
+						{
+							// Console.Error.WriteLine($"FRX Corrupted (Type 1): Size mismatch in {frxFilePath} at offset {frxOffset}. {bufferSize2} != {bufferSize1 - 8}");
+							return null; // Corrupted
+						}
+
+						int headerSize = 12;
+						int recordStart = frxOffset + headerSize;
+						int recordLength = (int)bufferSize2;
+
+						if (recordStart + recordLength > buffer.Length)
+						{
+							// Console.Error.WriteLine($"FRX Corrupted (Type 1): Record end out of bounds in {frxFilePath} at offset {frxOffset}.");
+							return null; // Corrupted
+						}
+						byte[] data = new byte[recordLength];
+						Array.Copy(buffer, recordStart, data, 0, recordLength);
+						return data;
+					}
+				}
+
+				// Type 2: 0xFF Prefixed Record (16-bit length)
+				if (buffer[frxOffset] == 0xFF)
+				{
+					if (frxOffset + 3 > buffer.Length) // Need 1 byte for 0xFF and 2 for length
+					{
+						// Console.Error.WriteLine($"FRX Corrupted (Type 2): Not enough bytes for header in {frxFilePath} at offset {frxOffset}.");
+						return null;
+					}
+						
+					int recordSize = BitConverter.ToUInt16(buffer, frxOffset + 1);
+					
+					// VB6 quirk: off-by-one for recordSize
+					// Rust: if header_size_element_offset (frxOffset+1) + record_size > buffer.len()
+					if ((frxOffset + 1) + record_size > buffer.Length) // Note: Rust uses record_offset (frxOffset+1+2) for this check in one place, but (frxOffset+1) seems more direct from context
+					{
+						 if (record_size > 0) record_size--; // Ensure not to make it negative
+					}
+
+					int recordStart = frxOffset + 3; // Skip 0xFF and 2-byte length
+					if (recordStart + recordSize > buffer.Length)
+					{
+						// Console.Error.WriteLine($"FRX Corrupted (Type 2): Record end out of bounds after adjustment in {frxFilePath} at offset {frxOffset}. RecordSize: {recordSize}");
+						return null; // Still out of bounds
+					}
+					 if (recordSize < 0) return Array.Empty<byte>(); // Should not happen with uint16 but defensive
+
+					byte[] data = new byte[recordSize];
+					if (recordSize > 0) // Array.Copy will throw if recordSize is 0 and recordStart is at end of buffer
+					{
+						 Array.Copy(buffer, recordStart, data, 0, recordSize);
+					}
+					return data;
+				}
+
+				// Type 3: List Items Record (Signatures [0x03, 0x00] or [0x07, 0x00])
+				// Check signature at frxOffset + 2 to frxOffset + 4
+				if (frxOffset + 4 <= buffer.Length) // Need at least 4 bytes for this header type
+				{
+					bool isListType1 = buffer[frxOffset + 2] == 0x03 && buffer[frxOffset + 3] == 0x00;
+					bool isListType2 = buffer[frxOffset + 2] == 0x07 && buffer[frxOffset + 3] == 0x00;
+
+					if (isListType1 || isListType2)
+					{
+						int listItemCount = BitConverter.ToUInt16(buffer, frxOffset);
+						int currentOffset = frxOffset + 4; // Start of first list item's length
+						int totalBlockEndOffset = currentOffset; // Will track the end of the entire list block relative to frxOffset
+
+						for (int i = 0; i < listItemCount; i++)
+						{
+							if (currentOffset + 2 > buffer.Length) // Not enough for item length
+							{
+								// Console.Error.WriteLine($"FRX Corrupted (Type 3): Truncated list item length in {frxFilePath} at item {i}, offset {currentOffset}.");
+								return null;
+							}
+							int listItemSize = BitConverter.ToUInt16(buffer, currentOffset);
+							currentOffset += 2; // Move past item length
+
+							if (currentOffset + listItemSize > buffer.Length) // Not enough for item data
+							{
+								// Console.Error.WriteLine($"FRX Corrupted (Type 3): Truncated list item data in {frxFilePath} at item {i}, offset {currentOffset}.");
+								return null;
+							}
+							currentOffset += listItemSize; // Move past item data
+						}
+						totalBlockEndOffset = currentOffset;
+						
+						int recordLength = totalBlockEndOffset - frxOffset;
+						byte[] data = new byte[recordLength];
+						Array.Copy(buffer, frxOffset, data, 0, recordLength);
+						return data; // Returns the whole block including header and all items
+					}
+				}
+				
+				// Type 4: 4-byte Header Record (Contains Null Byte in first 4 bytes)
+				// Rust condition: buffer.len() >= 12 && buffer[(offset)..(offset + 4)].contains(&0u8)
+				// The buffer.len() >= 12 seems like a general safety for some complex types, might not be strictly for this one.
+				// Let's check if frxOffset + 4 is valid first.
+				if (frxOffset + 4 <= buffer.Length)
+				{
+					bool hasNullByteInHeader = false;
+					for(int k=0; k<4; ++k) {
+						if (buffer[frxOffset + k] == 0) {
+							hasNullByteInHeader = true;
+							break;
+						}
+					}
+
+					if (hasNullByteInHeader)
+					{
+						int recordSize = (int)BitConverter.ToUInt32(buffer, frxOffset);
+						int headerSize = 4;
+						int recordStart = frxOffset + headerSize;
+						
+						if (recordStart + recordSize > buffer.Length) {
+							// Console.Error.WriteLine($"FRX Corrupted (Type 4): Record end out of bounds in {frxFilePath} at offset {frxOffset}.");
+							return null; 
+						}
+						 if (recordSize < 0) return Array.Empty<byte>();
+
+						byte[] data = new byte[recordSize];
+						if (recordSize > 0) {
+							Array.Copy(buffer, recordStart, data, 0, recordSize);
+						}
+						return data;
+					}
+				}
+
+				// Type 5: 1-byte Header Record (Default/Fallback)
+				// Ensure frxOffset is valid before trying to access buffer[frxOffset]
+				if (frxOffset < buffer.Length) 
+				{
+					int recordSize = buffer[frxOffset];
+					int headerSize = 1;
+					int recordStart = frxOffset + headerSize;
+
+					if (recordStart > buffer.Length) // Check if recordStart itself is out of bounds
+					{
+						// Console.Error.WriteLine($"FRX Corrupted (Type 5): Record start out of bounds in {frxFilePath} at offset {frxOffset}.");
+						return Array.Empty<byte>(); // Or null, Rust returns error. Empty might be safer for caller.
+					}
+
+					// Off-by-one hack (Rust: _ if record_size >= buffer.len() => record_start + record_size - 1)
+					// This means if the declared size would exceed the buffer *when added to record_start*
+					// The Rust code's condition `record_size >= buffer.len()` is a bit confusing in its direct form.
+					// It should be `record_start + record_size > buffer.len()` implies an off-by-one.
+					if (record_start + recordSize > buffer.Length)
+					{
+						 if (record_size > 0) record_size--;
+					}
+					
+					if (recordStart + recordSize > buffer.Length)
+					{
+						// Console.Error.WriteLine($"FRX Corrupted (Type 5): Record end out of bounds after adjustment in {frxFilePath} at offset {frxOffset}. RecordSize: {recordSize}");
+						return Array.Empty<byte>(); // Or null
+					}
+					if (recordSize < 0) return Array.Empty<byte>();
+
+					byte[] data = new byte[recordSize];
+					if (recordSize > 0)
+					{
+						Array.Copy(buffer, recordStart, data, 0, recordSize);
+					}
+					return data;
+				}
+
+				// If no type matched or offset was at the very end initially
+				// Console.Error.WriteLine($"FRX: Could not determine record type or invalid offset {frxOffset} for file {frxFilePath}.");
+				return null; // Should not be reached if offset is valid and one type matches
+			}
+			catch (Exception ex)
+			{
+				Console.Error.WriteLine($"Error processing FRX file {frxFilePath} at offset {frxOffset}: {ex.Message}");
+				return null;
+			}
+		}
 
 
         public Vb6FormFile Parse(string filePath)
@@ -200,7 +368,6 @@ namespace VB6Parse.Parsers
                         {
                             _formFile.Form = builtControl;
                             // After the main Form's "End", subsequent lines are Attributes for the Form or code.
-                            // We can now proceed to parse Form-level attributes.
                             ParseFormAttributes();
                             return; // Control block parsing is done.
                         }
@@ -209,7 +376,7 @@ namespace VB6Parse.Parsers
                             ControlParseState parentState = _controlStack.Peek();
                             if (builtControl.SpecificProperties is MenuProperties || builtControl.TypeKind == "Menu") // Check if it's a menu
                             {
-                                // Convert Vb6Control to Vb6MenuControl and add to parent's menus
+                                 // Convert Vb6Control to Vb6MenuControl and add to parent's menus
                                 parentState.ControlBeingBuilt.Menus.Add(ConvertToMenuControl(builtControl));
                             }
                             else
@@ -254,34 +421,67 @@ namespace VB6Parse.Parsers
                     if (match.Success)
                     {
                         string propName = match.Groups[1].Value;
-                        string propValue = match.Groups[2].Value.Trim();
-                        // Values are often quoted, remove leading/trailing quotes.
-                        // VB also uses "" inside a string to represent a single quote.
+                        string rawValuePart = match.Groups[2].Value; // This is everything after " = "
+                        string propValue;
+                        
+                        int commentCharPos = -1;
+                        bool inQuotes = false;
+                        for (int i = 0; i < rawValuePart.Length; i++)
+                        {
+                            if (rawValuePart[i] == '"')
+                            {
+                                if (i + 1 < rawValuePart.Length && rawValuePart[i+1] == '"')
+                                {
+                                    i++; 
+                                }
+                                else
+                                {
+                                    inQuotes = !inQuotes;
+                                }
+                            }
+                            else if (rawValuePart[i] == '\'' && !inQuotes)
+                            {
+                                commentCharPos = i;
+                                break;
+                            }
+                        }
+
+                        if (commentCharPos != -1)
+                        {
+                            propValue = rawValuePart.Substring(0, commentCharPos).TrimEnd();
+                        }
+                        else
+                        {
+                            propValue = rawValuePart.TrimEnd();
+                        }
+                        propValue = propValue.TrimStart();
+
                         if (propValue.StartsWith("\"") && propValue.EndsWith("\""))
                         {
-                            propValue = propValue.Substring(1, propValue.Length - 2).Replace("\"\"", "\"");
+                            if (propValue.Length >= 2)
+                            {
+                                 propValue = propValue.Substring(1, propValue.Length - 2).Replace("\"\"", "\"");
+                            }
+                            else 
+                            {
+                                propValue = string.Empty; 
+                            }
                         }
                         currentState.TextualProperties[propName] = propValue;
                         continue;
                     }
-                     // Line is not a recognized control structure or property inside a Begin block.
-                     // Could be a comment (VB uses ' at start of line or after code)
-                     // Simple comment stripping:
-                    int commentCharPos = trimmedLine.IndexOf('\'');
-                    if (commentCharPos == 0) continue; // Whole line is a comment
-                    if (commentCharPos > 0) {
-                        // Potentially a property line with a trailing comment.
-                        // Regexes should ideally handle this. For now, this is a fallback.
-                        // This part needs more robust handling of comments within property lines.
-                        // The current PropertyLineRegex will grab the comment as part of value.
-                        // A better regex or pre-stripping comments is needed.
-                    }
-
-                } else {
-                     // Lines outside any Begin...End block, and not a Begin itself.
-                     // This could be an Attribute line for the Form, if we are past the Form's End block.
-                     // Or it's an error / unexpected line.
-                     // The logic to switch to ParseFormAttributes handles this.
+                    // Line is not a recognized control structure or property inside a Begin block.
+                    // Could be a comment (VB uses ' at start of line or after code)
+                    // Simple comment stripping:
+                    if (trimmedLine.StartsWith("'")) continue; // Whole line is a comment
+                    // More complex handling might be needed if comments can be anywhere or if regexes need to ignore them.
+                    // For now, unhandled lines within a block are skipped or could be logged.
+                }
+                else
+                {
+                    // Line is outside any Begin/End block.
+                    // This should ideally not happen if ParseGlobalHeader correctly found the first "Begin".
+                    // Or it's after the final "End" of the form, which ParseFormAttributes will handle.
                 }
             }
         }
@@ -310,7 +510,6 @@ namespace VB6Parse.Parsers
                     continue;
                 }
                 
-                // Resource properties within property groups are less common but possible
                 match = ResourcePropertyLineRegex.Match(trimmedLine);
                 if (match.Success)
                 {
@@ -319,7 +518,6 @@ namespace VB6Parse.Parsers
                     byte[] data = _frxResolver?.Invoke(_frxFilePath, offset);
                     if (data != null)
                     {
-                        // Storing byte[] directly. Vb6PropertyGroup.Properties is Dictionary<string, object>
                         propertyGroup.Properties[propName] = data; 
                     }
                     continue;
@@ -329,10 +527,29 @@ namespace VB6Parse.Parsers
                 if (match.Success)
                 {
                     string propName = match.Groups[1].Value;
-                    string propValue = match.Groups[2].Value.Trim();
+                    string rawValuePart = match.Groups[2].Value;
+                    string propValue;
+
+                    int commentCharPos = -1;
+                    bool inQuotes = false;
+                    for (int i = 0; i < rawValuePart.Length; i++)
+                    {
+                        if (rawValuePart[i] == '"')
+                        {
+                            if (i + 1 < rawValuePart.Length && rawValuePart[i+1] == '"') { i++; }
+                            else { inQuotes = !inQuotes; }
+                        }
+                        else if (rawValuePart[i] == '\'' && !inQuotes) { commentCharPos = i; break; }
+                    }
+
+                    if (commentCharPos != -1) { propValue = rawValuePart.Substring(0, commentCharPos).TrimEnd(); }
+                    else { propValue = rawValuePart.TrimEnd(); }
+                    propValue = propValue.TrimStart();
+
                     if (propValue.StartsWith("\"") && propValue.EndsWith("\""))
                     {
-                        propValue = propValue.Substring(1, propValue.Length - 2).Replace("\"\"", "\"");
+                        if (propValue.Length >=2) { propValue = propValue.Substring(1, propValue.Length - 2).Replace("\"\"", "\""); }
+                        else { propValue = string.Empty;}
                     }
                     propertyGroup.Properties[propName] = propValue;
                     continue;
@@ -346,13 +563,11 @@ namespace VB6Parse.Parsers
         {
             Vb6Control control = state.ControlBeingBuilt; // Name is already set
 
-            // Parse TypeFullName into Namespace and Kind
             string[] typeParts = state.TypeFullName.Split('.');
             control.TypeNamespace = typeParts.Length > 1 ? typeParts[0] : "VB"; // Default to VB if no namespace
             control.TypeKind = typeParts.Length > 1 ? typeParts[1] : typeParts[0];
 
-            // Handle control arrays, e.g., "Command1(0)" -> Name="Command1", Index=0
-            Match nameIndexMatch = Regex.Match(control.Name, @"^([A-Za-z_][A-Za-z0-9_]*)_?\((\d+)\)$");
+            Match nameIndexMatch = Regex.Match(control.Name, @"([A-Za-z_][A-Za-z0-9_]*)\_?\((d+)\)");
             if (nameIndexMatch.Success)
             {
                 control.Name = nameIndexMatch.Groups[1].Value;
@@ -395,63 +610,63 @@ namespace VB6Parse.Parsers
                     control.SpecificProperties = menuProps;
                     break;
                 case "OptionButton":
-					var optProps = new MenuProperties();
-                    optProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
-                    control.SpecificProperties = optProps;
-					break;
+                     var optProps = new OptionButtonProperties(); // Assuming this class exists
+                     optProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
+                     control.SpecificProperties = optProps;
+                     break;
                 case "ListBox":
-					var lbProps = new ListBoxProperties();
+                    var lbProps = new ListBoxProperties(); // Assuming this class exists
                     lbProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
                     control.SpecificProperties = lbProps;
-					break;
+                    break;
                 case "ComboBox":
-					var cmbProps = new ComboBoxProperties();
+                    var cmbProps = new ComboBoxProperties(); // Assuming this class exists
                     cmbProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
                     control.SpecificProperties = cmbProps;
-					break;
+                    break;
                 case "Frame":
-					var frameProps = new FrameProperties();
+                    var frameProps = new FrameProperties(); // Assuming this class exists
                     frameProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
                     control.SpecificProperties = frameProps;
-					break;
+                    break;
                 case "Timer":
-					var timerProps = new TimerProperties();
+                    var timerProps = new TimerProperties(); // Assuming
                     timerProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
                     control.SpecificProperties = timerProps;
-					break;
+                    break;
                 case "PictureBox":
-					var picProps = new PictureBoxProperties();
+                    var picProps = new PictureBoxProperties(); // Assuming
                     picProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
                     control.SpecificProperties = picProps;
-					break;
+                    break;
                 case "Image":
-					var imgProps = new ImageProperties();
+                    var imgProps = new ImageProperties(); // Assuming
                     imgProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
                     control.SpecificProperties = imgProps;
-					break;
+                    break;
                 case "Line":
-					var lineProps = new LineProperties();
+                    var lineProps = new LineProperties(); // Assuming
                     lineProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
                     control.SpecificProperties = lineProps;
-					break;
+                    break;
                 case "Shape":
-					var shapeProps = new ShapeProperties();
+                    var shapeProps = new ShapeProperties(); // Assuming
                     shapeProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
                     control.SpecificProperties = shapeProps;
-					break;
+                    break;
                 case "HScrollBar":
-					var hscrollProps = new HScrollBarProperties();
+                    var hscrollProps = new HScrollBarProperties(); // Assuming
                     hscrollProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
                     control.SpecificProperties = hscrollProps;
-					break;
+                    break;
                 case "VScrollBar":
-					var vscrollProps = new VScrollBarProperties();
+                    var vscrollProps = new VScrollBarProperties(); // Assuming
                     vscrollProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
                     control.SpecificProperties = vscrollProps;
-					break;
+                    break;
                 default:
-                    // For custom controls (e.g., MSComctlLib.ListView) or unhandled standard controls
-                    // The TypeFullName (e.g. "MSComctlLib.ListViewCtrl") is passed to CustomControlProperties.
+                    // For custom controls (e.g., MSComctlLib.ListViewCtrl) or unhandled standard controls
+                    // The TypeFullName is passed to CustomControlProperties.
                     var customProps = new CustomControlProperties(state.TypeFullName);
                     customProps.PopulateFromDictionaries(state.TextualProperties, state.BinaryProperties, state.PropertyGroups);
                     control.SpecificProperties = customProps;
@@ -526,28 +741,8 @@ namespace VB6Parse.Parsers
     }
 
 
-    // Definition for XProperties base or interface, and specific properties classes
-    // would require each XProperties class (e.g., FormProperties, CommandButtonProperties)
-    // to have a method like:
-    // public virtual void PopulateFromDictionaries(
-    //    IReadOnlyDictionary<string, string> textualProps,
-    //    IReadOnlyDictionary<string, byte[]> binaryProps,
-    //    IReadOnlyList<Vb6PropertyGroup> propertyGroups)
-    // {
-    //    // Default implementation or make it abstract
-    //    this.Caption = PropertyParsingHelpers.GetString(textualProps, "Caption", "");
-    //    // ... use PropertyParsingHelpers for other common ones ...
-    //    // Handle Font property from propertyGroups or flat textualProps
-    //    var fontGroup = propertyGroups.FirstOrDefault(pg => pg.Name.Equals("Font", StringComparison.OrdinalIgnoreCase));
-    //    if (fontGroup != null) this.Font = PropertyParsingHelpers.ParseFontFromGroup(fontGroup);
-    //    else this.Font = PropertyParsingHelpers.ParseFontFromFlatProperties(textualProps, "Font");
-    // }
-    // This method would be implemented in each specific XProperties class.
-
-    /// <summary>
-    /// Helper class to read lines and allow pushing a line back onto the stream.
-    /// Also tracks line numbers for error reporting.
-    /// </summary>
+    // Helper class to read lines and allow pushing a line back onto the stream.
+    // Also tracks line numbers for error reporting.
     public class Vb6StreamReader : IDisposable
     {
         private readonly StreamReader _reader;

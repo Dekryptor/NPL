@@ -9,8 +9,8 @@ namespace VB6Parse.Language.Controls
 {
     public class ImageProperties : ControlSpecificPropertiesBase
     {
-        public Appearance Appearance { get; set; } = Appearance.Flat; // Image controls are always flat
-        public BorderStyleConstants BorderStyle { get; set; } = BorderStyleConstants.None; // Or FixedSingle
+        public int Appearance { get; set; } = 0; // Default: 0 - Flat
+        public int BorderStyle { get; set; } = 0; // Default: 0 - None
         public DataFormat DataFormat { get; set; } // Placeholder
         public string DataField { get; set; } = string.Empty;
         public object DataSource { get; set; } // Placeholder
@@ -66,9 +66,39 @@ namespace VB6Parse.Language.Controls
             Width = PropertyParsingHelpers.GetInt32(textualProps, "Width", this.Width);
 
             // Binary properties
-            if (binaryProps.TryGetValue("Picture", out byte[] picData)) Picture = picData; // FRX data
-            if (binaryProps.TryGetValue("DragIcon", out byte[] dragIconData)) DragIcon = dragIconData;
-            if (binaryProps.TryGetValue("MouseIcon", out byte[] mouseIconData)) MouseIcon = mouseIconData;
+            // --- Load Picture from FRX data ---
+            if (binaryProps.TryGetValue("Picture", out byte[] pictureData) && pictureData != null && pictureData.Length > 0)
+            {
+                try
+                {
+                    using (var ms = new MemoryStream(pictureData))
+                    {
+                        this.Picture = Image.FromStream(ms);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error loading Image.Picture from FRX data: {ex.Message}");
+                    this.Picture = null;
+                }
+            }
+
+            // --- Load MouseIcon from FRX data ---
+            if (binaryProps.TryGetValue("MouseIcon", out byte[] mouseIconData) && mouseIconData != null && mouseIconData.Length > 0)
+            {
+                try
+                {
+                    using (var ms = new MemoryStream(mouseIconData))
+                    {
+                        this.MouseIcon = Image.FromStream(ms);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error loading Image.MouseIcon from FRX data: {ex.Message}");
+                    this.MouseIcon = null;
+                }
+            }
             
             if (textualProps.TryGetValue("DataSource", out string dsName))
             {

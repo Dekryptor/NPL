@@ -17,10 +17,8 @@ namespace VB6Parse.Utilities
         /// <summary>
         /// Gets a string value from the properties dictionary.
         /// </summary>
-        public static string GetString(IReadOnlyDictionary<string, string> props, string key, string defaultValue = "")
-        {
-            return props.TryGetValue(key, out string valStr) ? valStr : defaultValue;
-        }
+        public static string GetString(IReadOnlyDictionary<string, string> props, string key, string defaultValue = "") =>
+            props.TryGetValue(key, out var val) ? val : defaultValue;
 
         /// <summary>
         /// Gets an integer (i32) value from the properties dictionary.
@@ -34,6 +32,9 @@ namespace VB6Parse.Utilities
             }
             return defaultValue;
         }
+		
+		public static int GetInt(IReadOnlyDictionary<string, string> props, string key, int defaultValue = 0) =>
+            props.TryGetValue(key, out var val) && int.TryParse(val, NumberStyles.Any, CultureInfo.InvariantCulture, out int result) ? result : defaultValue;
 
         /// <summary>
         /// Gets a single-precision float (float) value from the properties dictionary.
@@ -48,18 +49,23 @@ namespace VB6Parse.Utilities
             }
             return defaultValue;
         }
+		
+		public static float GetFloat(IReadOnlyDictionary<string, string> props, string key, float defaultValue = 0f) =>
+            props.TryGetValue(key, out var val) && float.TryParse(val, NumberStyles.Any, CultureInfo.InvariantCulture, out float result) ? result : defaultValue;
         
         /// <summary>
         /// Gets a boolean value from the properties dictionary.
         /// VB6 typically uses 0 for False and -1 (or sometimes 1) for True.
         /// </summary>
-        public static bool GetBool(IReadOnlyDictionary<string, string> props, string key, bool defaultValue)
+        public static bool GetBool(IReadOnlyDictionary<string, string> props, string key, bool defaultValue = false)
         {
-            if (props.TryGetValue(key, out string valStr))
+            if (props.TryGetValue(key, out var val))
             {
-                if (valStr == "0") return false;
-                // VB6 True is -1. Some controls might save True as 1.
-                if (valStr == "-1" || valStr == "1") return true; 
+                if (int.TryParse(val, out int intVal)) return intVal != 0; // VB uses 0 for False, -1 (or any non-zero) for True
+                if (bool.TryParse(val, out bool boolVal)) return boolVal; // For "True" / "False" strings (less common in .frm)
+                // VB often uses "0 'False" or "-1 'True"
+                if (val.StartsWith("0")) return false;
+                if (val.StartsWith("-1")) return true;
             }
             return defaultValue;
         }
@@ -68,17 +74,91 @@ namespace VB6Parse.Utilities
         /// Gets a Vb6Color value from the properties dictionary.
         /// Color values are typically hex strings like "&H00FFFFFF&".
         /// </summary>
-        public static Vb6Color GetColor(IReadOnlyDictionary<string, string> props, string key, Vb6Color defaultColor)
+        public static Color GetColor(IReadOnlyDictionary<string, string> props, string key, Color defaultValue)
         {
-            if (props.TryGetValue(key, out string valStr))
+            if (props.TryGetValue(key, out var valStr))
             {
-                if (Vb6Color.TryParseHex(valStr, out Vb6Color color))
+                if (string.IsNullOrWhiteSpace(valStr)) return defaultValue;
+
+                if (valStr.StartsWith("&H", StringComparison.OrdinalIgnoreCase))
                 {
-                    return color;
+                    string hexVal = valStr.Substring(2);
+                    if (hexVal.EndsWith("&"))
+                    {
+                        hexVal = hexVal.Substring(0, hexVal.Length - 1);
+                    }
+
+                    if (uint.TryParse(hexVal, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint oleColor))
+                    {
+                        if ((oleColor & 0x80000000) != 0)
+                        {
+                            KnownColor knownColor;
+                            switch ((int)(oleColor & 0xFF)) 
+                            {
+                                case 0: knownColor = KnownColor.ScrollBar; break;
+                                case 1: knownColor = KnownColor.Desktop; break; 
+                                case 2: knownColor = KnownColor.ActiveCaption; break;
+                                case 3: knownColor = KnownColor.InactiveCaption; break;
+                                case 4: knownColor = KnownColor.Menu; break;
+                                case 5: knownColor = KnownColor.Window; break;
+                                case 6: knownColor = KnownColor.WindowFrame; break;
+                                case 7: knownColor = KnownColor.MenuText; break;
+                                case 8: knownColor = KnownColor.WindowText; break;
+                                case 9: knownColor = KnownColor.ActiveCaptionText; break; 
+                                case 10: knownColor = KnownColor.ActiveBorder; break;
+                                case 11: knownColor = KnownColor.InactiveBorder; break;
+                                case 12: knownColor = KnownColor.AppWorkspace; break;
+                                case 13: knownColor = KnownColor.Highlight; break;
+                                case 14: knownColor = KnownColor.HighlightText; break;
+                                case 15: knownColor = KnownColor.Control; break; 
+                                case 16: knownColor = KnownColor.ControlDark; break; 
+                                case 17: knownColor = KnownColor.GrayText; break;
+                                case 18: knownColor = KnownColor.ControlText; break; 
+                                case 19: knownColor = KnownColor.InactiveCaptionText; break;
+                                case 20: knownColor = KnownColor.ControlLightLight; break; 
+                                case 21: knownColor = KnownColor.ControlDarkDark; break;
+                                case 22: knownColor = KnownColor.ControlLight; break;
+                                case 23: knownColor = KnownColor.InfoText; break;
+                                case 24: knownColor = KnownColor.Info; break; 
+                                case 25: knownColor = KnownColor.ButtonFace; break; // Not a standard system color index but sometimes used.
+                                case 26: knownColor = KnownColor.HotTrack; break; 
+                                case 27: knownColor = KnownColor.GradientActiveCaption; break;
+                                case 28: knownColor = KnownColor.GradientInactiveCaption; break;
+                                case 29: knownColor = KnownColor.MenuHighlight; break;
+                                case 30: knownColor = KnownColor.MenuBar; break;
+                                default: return defaultValue; 
+                            }
+                            return Color.FromKnownColor(knownColor);
+                        }
+                        else
+                        {
+                            int r = (int)(oleColor & 0xFF);
+                            int g = (int)((oleColor >> 8) & 0xFF);
+                            int b = (int)((oleColor >> 16) & 0xFF);
+                            return Color.FromArgb(r, g, b);
+                        }
+                    }
                 }
+                // Handle named colors if necessary, though .frm usually uses OLE_COLOR
+                try { return Color.FromName(valStr); } catch { /* Fall through */ }
             }
-            return defaultColor;
+            return defaultValue;
         }
+		
+		// Placeholder for Font parsing. You'll need a FontProperties class.
+        // public static FontProperties GetFont(IReadOnlyList<Vb6PropertyGroup> propertyGroups, string fontGroupName = "Font")
+        // {
+        //     var fontGroup = propertyGroups.FirstOrDefault(pg => pg.Name.Equals(fontGroupName, StringComparison.OrdinalIgnoreCase));
+        //     if (fontGroup != null)
+        //     {
+        //         var fontProps = new FontProperties();
+        //         // fontProps.Name = GetString(fontGroup.GetTextualProperties(), "Name", "MS Sans Serif");
+        //         // fontProps.Size = GetFloat(fontGroup.GetTextualProperties(), "Size", 8.25f);
+        //         // ... and so on for Charset, Weight, Underline, Italic, Strikethrough
+        //         return fontProps;
+        //     }
+        //     return null; // Or a default font
+        // }
 
         /// <summary>
         /// Gets an enum value from the properties dictionary.

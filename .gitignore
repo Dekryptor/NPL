@@ -2,6 +2,7 @@
 .git/
 Bckups/
 VBSixParser/
+MonacoEditor/
 
 # User-specific files
 *.rsuser

@@ -6,7 +6,12 @@ A modern, open-source Visual Basic 6 IDE for Windows.
 
 ## TODO
 
-- **Open & View Visual Basic 6 (VB6) file formats** Project files (`.vbp`), form files (`.frm`), class modules (`.cls`), standard modules (`.bas`) and user controls (`.ctl`)
+- **Open & View Visual Basic 6 (VB6) file formats**
+	- Project (`.vbp`)
+	- Form (`.frm`)
+	- Classe (`.cls`)
+	- Module (`.bas`)
+	- UserControl (`.ctl`)
 - **Parsing**: Parsing VB6 files using [VBSix](https://github.com/Dekryptor/NPL/tree/main/VBSixHelper) library
 - **Project Tree**: Sidebar displays all forms, modules, classes & references
 - **Integrated Code Editor**: Syntax highlighting, editing, and saving using [Monaco Editor](https://microsoft.github.io/monaco-editor/)

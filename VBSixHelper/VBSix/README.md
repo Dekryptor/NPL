@@ -1,6 +1,6 @@
 # VBSix: A C# Library for Parsing Visual Basic 6 Files
 
-VBSix is a .NET library designed for parsing various Visual Basic 6 (VB6) file formats, including project files (`.vbp`), form files (`.frm`), class modules (`.cls`), and standard modules (`.bas`).
+VBSix is a .NET library designed for parsing various Visual Basic 6 (VB6) file formats, including project files (`.vbp`), form files (`.frm`), class modules (`.cls`), standard modules (`.bas`) and user controls (`.ctl`).
 
 The primary goal of this library is to enable developers to analyze, understand, and potentially migrate or refactor legacy VB6 applications by providing structured access to their source code and project metadata.
 

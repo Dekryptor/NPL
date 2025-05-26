@@ -7,7 +7,7 @@ A modern, open-source Visual Basic 6 project viewer and lightweight IDE for Wind
 ## TODO
 
 - **Open & View VB6 Projects** (`.vbp (Project)`, `.frm (Form)`, `.bas (Module)`, `.cls (Class)`)
-- **Parsing**: Parsing VB6 files using `VB6Parser` library
+- **Parsing**: Parsing VB6 files using [Link VBSix](https://github.com/Dekryptor/NPL/tree/main/VBSixHelper) library
 - **Project Tree**: Sidebar displays all forms, modules, classes & references
 - **Integrated Code Editor**: Syntax highlighting, editing, and saving using [Monaco Editor](https://microsoft.github.io/monaco-editor/)
 - **Form Designer**: Ready to plug in your own WinUI or custom VB6 form designer
@@ -28,7 +28,7 @@ A modern, open-source Visual Basic 6 project viewer and lightweight IDE for Wind
 
 ### Prerequisites
 
-- [Visual Studio 2022+](https://visualstudio.microsoft.com/) with **WinUI 3** and **.NET 8 SDK**
+- [Visual Studio 2022+](https://visualstudio.microsoft.com/) with **WinUI 3** and **.NET 9 SDK**
 - [Windows App SDK](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/)
 - [Microsoft.Web.WebView2](https://www.nuget.org/packages/Microsoft.Web.WebView2/) (NuGet package, installed automatically)
 - Windows 10 19041 or later
